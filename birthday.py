@@ -46,14 +46,24 @@ class Heart:
 
 
 class Catcher:
-    W     = 90
-    H     = 18
+    W     = 100
     SPEED = 6
 
-    def __init__(self, screen_width, screen_height):
-        self.sw = screen_width
-        self.x  = screen_width  // 2 - self.W // 2
-        self.y  = screen_height - 60
+    CATCH_ZONE_TOP    = 100
+    CATCH_ZONE_HEIGHT = 20
+
+    def __init__(self, screen_width, screen_height, sprites):
+        self.sw      = screen_width
+        self.sh      = screen_height
+        self.sprites = sprites  # list of 4 sprites, each with their own height
+        self.x       = screen_width // 2 - self.W // 2
+        # position based on the tallest sprite so it doesn't jump around
+        self.tallest = max(s.get_height() for s in sprites)
+        self.y       = screen_height - self.tallest - 10
+
+    def get_sprite(self, score):
+        idx = min(score // 2, 4)
+        return self.sprites[idx]
 
     def update(self, keys):
         if keys[pygame.K_LEFT]  and self.x > 0:
@@ -61,21 +71,24 @@ class Catcher:
         if keys[pygame.K_RIGHT] and self.x + self.W < self.sw:
             self.x += self.SPEED
 
-    def draw(self, surface):
-        r = self.get_rect()
-        pygame.draw.ellipse(surface, (255, 140, 170), r)
-        pygame.draw.ellipse(surface, (255, 80, 120),  r, 3)
+    def draw(self, surface, score):
+        sprite = self.get_sprite(score)
+        # anchor to bottom so character feet stay in place as basket fills up
+        draw_y = self.y + self.tallest - sprite.get_height()
+        surface.blit(sprite, (self.x, draw_y))
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.W, self.H)
+    def get_catch_rect(self):
+        return pygame.Rect(self.x, self.y + self.CATCH_ZONE_TOP, self.W, self.CATCH_ZONE_HEIGHT)
 
 
 def main():
     pygame.init()
+    pygame.mixer.pre_init(44100, -16, 2, 512)
+    pygame.mixer.init()
 
     WIDTH, HEIGHT = 480, 640
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Catch My Heart")
+    pygame.display.set_caption("Catch My Heart 💕")
     clock = pygame.time.Clock()
 
     BG_COLOR   = (255, 235, 245)
@@ -84,8 +97,19 @@ def main():
     font_big   = pygame.font.SysFont("Georgia", 36, bold=True)
     font_small = pygame.font.SysFont("Georgia", 22)
 
+    # Load all 4 sprites, scale by width and preserve each one's aspect ratio
+    sprites = []
+    for i in range(1, 6):
+        raw = pygame.image.load(f"aaron{i}.PNG").convert_alpha()
+        orig_w, orig_h = raw.get_size()
+        scaled_h = int(orig_h * Catcher.W / orig_w)
+        sprites.append(pygame.transform.scale(raw, (Catcher.W, scaled_h)))
+        print(f"aaron{i}.PNG: original {orig_w}x{orig_h} → scaled {Catcher.W}x{scaled_h}")
+
+    catch_sound = pygame.mixer.Sound("heart.wav")
+
     heart   = Heart(WIDTH, HEIGHT)
-    catcher = Catcher(WIDTH, HEIGHT)
+    catcher = Catcher(WIDTH, HEIGHT, sprites)
 
     score    = 0
     missed   = 0
@@ -104,8 +128,9 @@ def main():
         catcher.update(keys)
         heart.update()
 
-        if catcher.get_rect().colliderect(heart.get_rect()):
+        if catcher.get_catch_rect().colliderect(heart.get_rect()):
             score += 1
+            catch_sound.play()
             heart.reset()
 
         if heart.is_off_screen():
@@ -128,9 +153,9 @@ def main():
         # Draw
         screen.fill(BG_COLOR)
         heart.draw(screen)
-        catcher.draw(screen)
+        catcher.draw(screen, score)
 
-        score_text  = font_small.render(f"Score: {score}",        True, TEXT_COLOR)
+        score_text  = font_small.render(f"Score: {score}",             True, TEXT_COLOR)
         missed_text = font_small.render(f"Missed: {missed}/{MAX_MISS}", True, TEXT_COLOR)
         screen.blit(score_text,  (12, 12))
         screen.blit(missed_text, (WIDTH - missed_text.get_width() - 12, 12))
